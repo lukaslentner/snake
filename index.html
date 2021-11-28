@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="de">
+<head>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#2a94eb">
+
+<title>Snake</title>
+
+<style>
+
+#canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+}
+
+</style>
+
+<script src="jquery-3.6.0.min.js"></script>
+
+<script>
+
+const FPS = 80;
+const FPS_INTERVAL = 1000 / FPS;
+
+const Color = function(r, b, g, a) {
+	this.r = r;
+	this.b = b;
+	this.g = g;
+	this.a = a;
+};
+
+const Colors = {
+	BACKGROUND: new Color(0, 255, 0, 255),
+	FRONT: new Color(255, 0, 0, 255)
+};
+
+// Mof immutable machen, ...
+
+const Mof = function(x, y, dx, dy) {
+	this.x = x;
+	this.y = y;
+	this.dx = dx;
+	this.dy = dy;
+};
+
+const Snake = function(x, y, dx, dy, headSpeed, assSpeed) {
+	this.head = new Mof(x, y, dx, dy);
+	this.ass = new Mof(x, y, dx, dy);
+	this.headSpeed = headSpeed;
+	this.assSpeed = assSpeed;
+	const corners = [];
+	this.headRight = () => {
+		this.head = new Mof(this.head.x, this.head.y, 1, 0);
+		corners.push(this.head);
+	};
+	this.headLeft = () => {
+		this.head = new Mof(this.head.x, this.head.y, -1, 0);
+		corners.push(this.head);
+	};
+	this.headDown = () => {
+		this.head = new Mof(this.head.x, this.head.y, 0, 1);
+		corners.push(this.head);
+	};
+	this.headUp = () => {
+		this.head = new Mof(this.head.x, this.head.y, 0, -1);
+		corners.push(this.head);
+	};
+	this.headGo = stepCallback => {
+		for(let stepIndex = 0; stepIndex < this.headSpeed; stepIndex++) {
+			const oldHead = this.head;
+			this.head = new Mof(this.head.x + this.head.dx, this.head.y + this.head.dy, this.head.dx, this.head.dy);
+			stepCallback(oldHead, this.head);
+		}
+	};
+	this.assGo = stepCallback => {
+		for(let stepIndex = 0; stepIndex < this.assSpeed; stepIndex++) {
+			const oldAss = this.ass;
+			this.ass = new Mof(this.ass.x + this.ass.dx, this.ass.y + this.ass.dy, this.ass.dx, this.ass.dy);
+			if(corners.length > 0 && this.ass.x === corners[0].x && this.ass.y === corners[0].y) {
+				this.ass = corners.shift();
+			}
+			stepCallback(oldAss, this.ass);
+		}
+	};
+};
+
+$(function() {
+
+	const canvas = document.getElementById('canvas');
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+	const canvasCtx = canvas.getContext('2d');
+	const canvasData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
+
+	const drawPixel = (x, y, color) => {
+		const index = (x + y * canvas.width) * 4;
+		canvasData.data[index + 0] = color.r;
+		canvasData.data[index + 1] = color.g;
+		canvasData.data[index + 2] = color.b;
+		canvasData.data[index + 3] = color.a;
+	};
+
+	const updateCanvas = () => {
+		canvasCtx.putImageData(canvasData, 0, 0);
+	};
+	
+	/*if (canvas.requestFullscreen) {
+	  canvas.requestFullscreen();
+	}*/
+	
+	const clean = () => {
+		for(let x = 0; x < canvas.width; x++) {
+			for(let y = 0; y < canvas.height; y++) {
+				drawPixel(x, y, Colors.BACKGROUND);
+			}
+		}
+		updateCanvas();
+	};
+	
+	clean();
+	
+	const snake = new Snake(10, 10, 1, 0, 4, 2);
+	
+	$('body').keydown(e => {
+		if(e.which === 38) {
+			snake.headUp();
+		} else if(e.which === 40) {
+			snake.headDown();
+		} else if(e.which === 39) {
+			snake.headRight();
+		} else if(e.which === 37) {
+			snake.headLeft();
+		}
+	});
+	
+	let lastTime;
+	const animationFrame = now => {
+	
+		if(lastTime  === undefined) lastTime  = now;
+		const timePast = now - lastTime;
+
+		window.requestAnimationFrame(animationFrame);
+		
+		if(timePast < FPS_INTERVAL) {
+			return;
+		}
+		
+		snake.headGo((oldHead, newHead) => {
+			drawPixel(newHead.x, newHead.y, Colors.FRONT);
+		});
+		snake.assGo((oldAss, newAss) => {
+			drawPixel(oldAss.x, oldAss.y, Colors.BACKGROUND);
+		});
+		updateCanvas();
+		
+		lastTime = now;
+		
+	}
+
+	window.requestAnimationFrame(animationFrame);
+	
+});
+
+</script>
+
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+</body>
+</html>
