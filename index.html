@@ -1,31 +1,15 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-<meta name="theme-color" content="#2a94eb">
 
 <title>Snake</title>
-
-<style>
-
-#canvas {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
-}
-
-</style>
 
 <script src="jquery-3.6.0.min.js"></script>
 
 <script>
-
-const FPS = 80;
-const FPS_INTERVAL = 1000 / FPS;
 
 const Color = function(r, b, g, a) {
 	this.r = r;
@@ -35,143 +19,222 @@ const Color = function(r, b, g, a) {
 };
 
 const Colors = {
-	BACKGROUND: new Color(0, 255, 0, 255),
-	FRONT: new Color(255, 0, 0, 255)
+	BACKGROUND: new Color(0, 0, 0, 255),
+	FRONT: new Color(200, 200, 200, 255)
 };
 
-// Mof immutable machen, ...
-
-const Mof = function(x, y, dx, dy) {
-	this.x = x;
-	this.y = y;
-	this.dx = dx;
-	this.dy = dy;
+const Canvas = function(element, width, height) {
+	this._element = element;
+	this._element.width = width;
+	this._element.height = height;
+	this._ctx = this._element.getContext('2d');
+	this._imageData = this._ctx.getImageData(0, 0, this._element.width, this._element.height);
+	this.width = () => {
+		return this._element.width;
+	};
+	this.height = () => {
+		return this._element.height;
+	};
+	this.drawPixel = (point, color) => {
+		const index = (point.x() + point.y() * this._element.width) * 4;
+		this._imageData.data[index + 0] = color.r;
+		this._imageData.data[index + 1] = color.g;
+		this._imageData.data[index + 2] = color.b;
+		this._imageData.data[index + 3] = color.a;
+	};
+	this.updateDrawings = () => {
+		this._ctx.putImageData(this._imageData, 0, 0);
+	};
+	this.clean = () => {
+		for(let x = 0; x < this._element.width; x++) {
+			for(let y = 0; y < this._element.height; y++) {
+				this.drawPixel(new Point(x, y), Colors.BACKGROUND);
+			}
+		}
+		this.updateDrawings();
+	};
+	this.setPaused = (pause) => {
+		$(this._element).css('opacity', pause ? '0.3' : '1');
+	};
 };
 
-const Snake = function(x, y, dx, dy, headSpeed, assSpeed) {
-	this.head = new Mof(x, y, dx, dy);
-	this.ass = new Mof(x, y, dx, dy);
-	this.headSpeed = headSpeed;
-	this.assSpeed = assSpeed;
-	const corners = [];
-	this.headRight = () => {
-		this.head = new Mof(this.head.x, this.head.y, 1, 0);
-		corners.push(this.head);
+const Infos = function() {
+	this._data = [];
+	this._constructInfo = () => {
+		return {
+			snake: 0
+		};
 	};
-	this.headLeft = () => {
-		this.head = new Mof(this.head.x, this.head.y, -1, 0);
-		corners.push(this.head);
+	this.get = point => {
+		const index = point.x() + point.y() * canvas.width();
+		if(this._data[index] === undefined) {
+			this._data[index] = this._constructInfo();
+		}
+		return this._data[index];
 	};
-	this.headDown = () => {
-		this.head = new Mof(this.head.x, this.head.y, 0, 1);
-		corners.push(this.head);
+};
+
+const Point = function(x, y) { // IMMUTABLE
+	this._x = x;
+	this._y = y;
+	this.x = () => {
+		return this._x;
 	};
-	this.headUp = () => {
-		this.head = new Mof(this.head.x, this.head.y, 0, -1);
-		corners.push(this.head);
+	this.y = () => {
+		return this._y;
+	};
+};
+
+const Mof = function(r, dx, dy) { // IMMUTABLE
+	this._r = r;
+	this._dx = dx;
+	this._dy = dy;
+	this.r = () => {
+		return this._r;
+	};
+	this.x = () => {
+		return this._r.x();
+	};
+	this.y = () => {
+		return this._r.y();
+	};
+	this.dx = () => {
+		return this._dx;
+	};
+	this.dy = () => {
+		return this._dy;
+	};
+	this.step = () => {
+		return new Mof(new Point((this.x() + this._dx + canvas.width()) % canvas.width(), (this.y() + this._dy + canvas.height()) % canvas.height()), this._dx, this._dy);
+	};
+	this.redirect = (dx, dy) => {
+		return new Mof(this._r, dx, dy);
+	};
+};
+
+const Snake = function(startHead, headSpeed, tailSpeed, callback) {
+	this._head = startHead;
+	this._tail = startHead;
+	this._headSpeed = headSpeed;
+	this._tailSpeed = tailSpeed;
+	this._corners = [];
+	this._headStepsSinceLastCorner = 0;
+	this.head = () => {
+		return this._head;
+	};
+	this.tail = () => {
+		return this._tail;
+	};
+	this._addCorner = () => {
+		if(this._corners.length > 0 && this._headStepsSinceLastCorner === 0) {
+			this._corners[this._corners.length - 1] = this._head;
+		} else {
+			this._corners.push(this._head);
+		}
+		this._headStepsSinceLastCorner = 0;
+	};
+	this.headRedirect = (dx, dy) => {
+		this._head = this._head.redirect(dx, dy);
+		this._addCorner();
 	};
 	this.headGo = stepCallback => {
-		for(let stepIndex = 0; stepIndex < this.headSpeed; stepIndex++) {
-			const oldHead = this.head;
-			this.head = new Mof(this.head.x + this.head.dx, this.head.y + this.head.dy, this.head.dx, this.head.dy);
-			stepCallback(oldHead, this.head);
-		}
-	};
-	this.assGo = stepCallback => {
-		for(let stepIndex = 0; stepIndex < this.assSpeed; stepIndex++) {
-			const oldAss = this.ass;
-			this.ass = new Mof(this.ass.x + this.ass.dx, this.ass.y + this.ass.dy, this.ass.dx, this.ass.dy);
-			if(corners.length > 0 && this.ass.x === corners[0].x && this.ass.y === corners[0].y) {
-				this.ass = corners.shift();
+		for(let stepIndex = 0; stepIndex < this._headSpeed; stepIndex++) {
+			const oldHead = this._head;
+			this._head = this._head.step();
+			this._headStepsSinceLastCorner++;
+			if(oldHead.x() + oldHead.dx() !== this._head.x() || oldHead.y() + oldHead.dy() !== this._head.y()) {
+				// If snake moves over canvas borders (periodic constraints) we must remember this as corner, because without periodic constraints the snake cannot eat itself without making corners. With periodic constraints this is possible and the tail will follow the next corner without moving along the periodic tail.
+				this._addCorner();
 			}
-			stepCallback(oldAss, this.ass);
+			stepCallback(oldHead, this._head);
 		}
 	};
+	this.tailGo = stepCallback => {
+		for(let stepIndex = 0; stepIndex < this._tailSpeed; stepIndex++) {
+			const oldTail = this._tail;
+			this._tail = this._tail.step();
+			if(this._corners.length > 0 && this._tail.x() === this._corners[0].x() && this._tail.y() === this._corners[0].y()) {
+				this._tail = this._corners.shift();
+			}
+			stepCallback(oldTail, this._tail);
+		}
+	};
+	callback(this);
 };
+
+let canvas, infos, snake;
 
 $(function() {
 
-	const canvas = document.getElementById('canvas');
-	canvas.width = window.innerWidth;
-	canvas.height = window.innerHeight;
-	const canvasCtx = canvas.getContext('2d');
-	const canvasData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
+	canvas = new Canvas(document.getElementById('canvas'), window.innerWidth, window.innerHeight);
+	canvas.clean();
+	
+	infos = new Infos(canvas);
 
-	const drawPixel = (x, y, color) => {
-		const index = (x + y * canvas.width) * 4;
-		canvasData.data[index + 0] = color.r;
-		canvasData.data[index + 1] = color.g;
-		canvasData.data[index + 2] = color.b;
-		canvasData.data[index + 3] = color.a;
-	};
-
-	const updateCanvas = () => {
-		canvasCtx.putImageData(canvasData, 0, 0);
-	};
-	
-	/*if (canvas.requestFullscreen) {
-	  canvas.requestFullscreen();
-	}*/
-	
-	const clean = () => {
-		for(let x = 0; x < canvas.width; x++) {
-			for(let y = 0; y < canvas.height; y++) {
-				drawPixel(x, y, Colors.BACKGROUND);
-			}
-		}
-		updateCanvas();
-	};
-	
-	clean();
-	
-	const snake = new Snake(10, 10, 1, 0, 4, 2);
-	
-	$('body').keydown(e => {
-		if(e.which === 38) {
-			snake.headUp();
-		} else if(e.which === 40) {
-			snake.headDown();
-		} else if(e.which === 39) {
-			snake.headRight();
-		} else if(e.which === 37) {
-			snake.headLeft();
-		}
+	snake = new Snake(new Mof(new Point(10, 10), 1, 0), 4, 3, snake => {
+		infos.get(snake.head()).snake++;
+		canvas.drawPixel(snake.head(), Colors.FRONT);
+		canvas.updateDrawings();
 	});
 	
+	const FPS = 80;
+	const FPS_INTERVAL = 1000 / FPS;
+	let pause = false;
 	let lastTime;
-	const animationFrame = now => {
+	const animationFrame = nowTime => {
 	
-		if(lastTime  === undefined) lastTime  = now;
-		const timePast = now - lastTime;
+		if(lastTime  === undefined) lastTime  = nowTime;
+		const timePast = nowTime - lastTime;
+		
+		if(!pause && timePast >= FPS_INTERVAL) {
+			
+			snake.headGo((oldHead, newHead) => {
+				infos.get(newHead).snake++;
+				canvas.drawPixel(newHead, Colors.FRONT);
+			});
+			snake.tailGo((oldTail, newTail) => {
+				const info = infos.get(oldTail);
+				if(info.snake === 0) throw 'No snake info present!';
+				info.snake--;
+				if(info.snake === 0) {
+					canvas.drawPixel(oldTail, Colors.BACKGROUND);
+				}
+			});
+			canvas.updateDrawings();
+			
+			lastTime = nowTime;
+		
+		}
 
 		window.requestAnimationFrame(animationFrame);
-		
-		if(timePast < FPS_INTERVAL) {
-			return;
-		}
-		
-		snake.headGo((oldHead, newHead) => {
-			drawPixel(newHead.x, newHead.y, Colors.FRONT);
-		});
-		snake.assGo((oldAss, newAss) => {
-			drawPixel(oldAss.x, oldAss.y, Colors.BACKGROUND);
-		});
-		updateCanvas();
-		
-		lastTime = now;
 		
 	}
 
 	window.requestAnimationFrame(animationFrame);
+	
+	$('body').keydown(e => {
+		if(e.which === 32) { // SPACE
+			pause = !pause;
+			canvas.setPaused(pause);
+		} else if(!pause && e.which === 37) { // LEFT
+			snake.headRedirect(-1, 0);
+		} else if(!pause && e.which === 38) { // UP
+			snake.headRedirect(0, -1);
+		} else if(!pause && e.which === 39) { // RIGHT
+			snake.headRedirect(+1, 0);
+		} else if(!pause && e.which === 40) { // DOWN
+			snake.headRedirect(0, +1);
+		}
+	});
 	
 });
 
 </script>
 
 </head>
-<body>
+<body style="background-color: #999; ">
 
-<canvas id="canvas"></canvas>
+<canvas id="canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; "></canvas>
 
 </body>
 </html>
