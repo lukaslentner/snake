@@ -7,15 +7,66 @@
 
 <title>Snake</title>
 
-<script src="jquery-3.6.0.min.js"></script>
+<style>
+
+* {
+	user-select: none;
+}
+
+body {
+	background-color: #999;
+}
+
+#canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	z-index: -9999;
+	opacity: 0.2;
+}
+
+.tag {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	display: none;
+	justify-content: center;
+	align-items: center;
+	font-family: sans-serif;
+	font-size: 3rem;
+	font-weight: bold;
+	color: white;
+}
+
+#before-tag {
+	display: flex;
+}
+
+</style>
 
 <script>
 
-const Color = function(r, b, g, a) {
-	this.r = r;
-	this.b = b;
-	this.g = g;
-	this.a = a;
+const Color = function(r, b, g, a) { // IMMUTABLE
+	this._r = r;
+	this._b = b;
+	this._g = g;
+	this._a = a;
+	this.r = () => {
+		return this._r;
+	};
+	this.b = () => {
+		return this._b;
+	};
+	this.g = () => {
+		return this._g;
+	};
+	this.a = () => {
+		return this._a;
+	};
 };
 
 const Colors = {
@@ -37,10 +88,10 @@ const Canvas = function(element, width, height) {
 	};
 	this.drawPixel = (point, color) => {
 		const index = (point.x() + point.y() * this._element.width) * 4;
-		this._imageData.data[index + 0] = color.r;
-		this._imageData.data[index + 1] = color.g;
-		this._imageData.data[index + 2] = color.b;
-		this._imageData.data[index + 3] = color.a;
+		this._imageData.data[index + 0] = color.r();
+		this._imageData.data[index + 1] = color.g();
+		this._imageData.data[index + 2] = color.b();
+		this._imageData.data[index + 3] = color.a();
 	};
 	this.updateDrawings = () => {
 		this._ctx.putImageData(this._imageData, 0, 0);
@@ -53,12 +104,10 @@ const Canvas = function(element, width, height) {
 		}
 		this.updateDrawings();
 	};
-	this.setPaused = (pause) => {
-		$(this._element).css('opacity', pause ? '0.3' : '1');
-	};
 };
 
-const Infos = function() {
+const CanvasInfos = function(canvas) {
+	this._canvas = canvas;
 	this._data = [];
 	this._constructInfo = () => {
 		return {
@@ -66,7 +115,7 @@ const Infos = function() {
 		};
 	};
 	this.get = point => {
-		const index = point.x() + point.y() * canvas.width();
+		const index = point.x() + point.y() * this._canvas.width();
 		if(this._data[index] === undefined) {
 			this._data[index] = this._constructInfo();
 		}
@@ -85,7 +134,8 @@ const Point = function(x, y) { // IMMUTABLE
 	};
 };
 
-const Mof = function(r, dx, dy) { // IMMUTABLE
+const MovingPoint = function(canvas, r, dx, dy) { // IMMUTABLE
+	this._canvas = canvas;
 	this._r = r;
 	this._dx = dx;
 	this._dy = dy;
@@ -105,10 +155,16 @@ const Mof = function(r, dx, dy) { // IMMUTABLE
 		return this._dy;
 	};
 	this.step = () => {
-		return new Mof(new Point((this.x() + this._dx + canvas.width()) % canvas.width(), (this.y() + this._dy + canvas.height()) % canvas.height()), this._dx, this._dy);
+		return new MovingPoint(
+			this._canvas,
+			new Point(
+				(this.x() + this._dx + this._canvas.width() ) % this._canvas.width(),
+				(this.y() + this._dy + this._canvas.height()) % this._canvas.height()),
+			this._dx,
+			this._dy);
 	};
 	this.redirect = (dx, dy) => {
-		return new Mof(this._r, dx, dy);
+		return new MovingPoint(this._canvas, this._r, dx, dy);
 	};
 };
 
@@ -142,8 +198,14 @@ const Snake = function(startHead, headSpeed, tailSpeed, callback) {
 			const oldHead = this._head;
 			this._head = this._head.step();
 			this._headStepsSinceLastCorner++;
-			if(oldHead.x() + oldHead.dx() !== this._head.x() || oldHead.y() + oldHead.dy() !== this._head.y()) {
-				// If snake moves over canvas borders (periodic constraints) we must remember this as corner, because without periodic constraints the snake cannot eat itself without making corners. With periodic constraints this is possible and the tail will follow the next corner without moving along the periodic tail.
+			if(	oldHead.x() + oldHead.dx() !== this._head.x() ||
+				oldHead.y() + oldHead.dy() !== this._head.y()) {
+				// With periodic constraint (moving over window borders) there is the problem when doing the following steps:
+				// - let the snake run without interaction so long that it moves over the periodic constrint and goes over the tail (snake front lies over snake back)
+				// - now change the direction once
+				// In such a situation the tail will detect the change in direction as oldest corner and immediatly do the direction change leaving back a big part of the snake.
+				// The snake is thus seperated in 2 parts (one being static).
+				// Adding a corner if moving over the periodic constraint solves this problem.
 				this._addCorner();
 			}
 			stepCallback(oldHead, this._head);
@@ -153,7 +215,9 @@ const Snake = function(startHead, headSpeed, tailSpeed, callback) {
 		for(let stepIndex = 0; stepIndex < this._tailSpeed; stepIndex++) {
 			const oldTail = this._tail;
 			this._tail = this._tail.step();
-			if(this._corners.length > 0 && this._tail.x() === this._corners[0].x() && this._tail.y() === this._corners[0].y()) {
+			if(	this._corners.length > 0 &&
+				this._tail.x() === this._corners[0].x() &&
+				this._tail.y() === this._corners[0].y()) {
 				this._tail = this._corners.shift();
 			}
 			stepCallback(oldTail, this._tail);
@@ -162,79 +226,136 @@ const Snake = function(startHead, headSpeed, tailSpeed, callback) {
 	callback(this);
 };
 
-let canvas, infos, snake;
-
-$(function() {
-
-	canvas = new Canvas(document.getElementById('canvas'), window.innerWidth, window.innerHeight);
-	canvas.clean();
+const Animation = function(canvas, canvasInfos, snake) {
+	this._canvas = canvas;
+	this._canvasInfos = canvasInfos;
+	this._snake = snake;
+	this._paused = true;
+	this.setPaused = paused => {
+		this._paused = paused;
+	};
+	this.run = () => {
 	
-	infos = new Infos(canvas);
-
-	snake = new Snake(new Mof(new Point(10, 10), 1, 0), 4, 3, snake => {
-		infos.get(snake.head()).snake++;
-		canvas.drawPixel(snake.head(), Colors.FRONT);
-		canvas.updateDrawings();
-	});
-	
-	const FPS = 80;
-	const FPS_INTERVAL = 1000 / FPS;
-	let pause = false;
-	let lastTime;
-	const animationFrame = nowTime => {
-	
-		if(lastTime  === undefined) lastTime  = nowTime;
-		const timePast = nowTime - lastTime;
+		const FPS = 80;
+		const FPS_INTERVAL = 1000 / FPS;
+		let lastTime;
+		const animationFrame = nowTime => {
 		
-		if(!pause && timePast >= FPS_INTERVAL) {
+			if(lastTime  === undefined) lastTime  = nowTime;
+			const timePast = nowTime - lastTime;
 			
-			snake.headGo((oldHead, newHead) => {
-				infos.get(newHead).snake++;
-				canvas.drawPixel(newHead, Colors.FRONT);
-			});
-			snake.tailGo((oldTail, newTail) => {
-				const info = infos.get(oldTail);
-				if(info.snake === 0) throw 'No snake info present!';
-				info.snake--;
-				if(info.snake === 0) {
-					canvas.drawPixel(oldTail, Colors.BACKGROUND);
-				}
-			});
-			canvas.updateDrawings();
+			if(!this._paused && timePast >= FPS_INTERVAL) {
+				
+				this._snake.headGo((oldHead, newHead) => {
+					this._canvasInfos.get(newHead).snake++;
+					this._canvas.drawPixel(newHead, Colors.FRONT);
+				});
+				this._snake.tailGo((oldTail, newTail) => {
+					const info = this._canvasInfos.get(oldTail);
+					if(info.snake === 0) throw 'No snake info present!';
+					info.snake--;
+					if(info.snake === 0) {
+						this._canvas.drawPixel(oldTail, Colors.BACKGROUND);
+					}
+				});
+				this._canvas.updateDrawings();
+				
+				lastTime = nowTime;
 			
-			lastTime = nowTime;
-		
+			}
+
+			window.requestAnimationFrame(animationFrame);
+			
 		}
 
 		window.requestAnimationFrame(animationFrame);
 		
-	}
+	};
+};
 
-	window.requestAnimationFrame(animationFrame);
+const Controls = function(canvas, canvasInfos, snake, animation) {
+	this._canvas = canvas;
+	this._canvasInfos = canvasInfos;
+	this._snake = snake;
+	this._animation = animation;
+	this.install = app => {
+		document.addEventListener('keydown', e => {
+			const mode = app.getMode();
+			if(e.keyCode === 32) { // SPACE
+				if(mode === 1) {
+					app.setMode(2);
+				} else if(mode === 2) {
+					app.setMode(3);
+				} else if(mode === 3) {
+					app.setMode(2);
+				} else if(mode === 4) {
+					app.setMode(1);
+				}
+			} else if(e.keyCode === 37 && mode === 2) { // LEFT
+				this._snake.headRedirect(-1, 0);
+			} else if(e.keyCode === 38 && mode === 2) { // UP
+				this._snake.headRedirect(0, -1);
+			} else if(e.keyCode === 39 && mode === 2) { // RIGHT
+				this._snake.headRedirect(+1, 0);
+			} else if(e.keyCode === 40 && mode === 2) { // DOWN
+				this._snake.headRedirect(0, +1);
+			}
+		});
+	};
+};
+
+const App = function() {
 	
-	$('body').keydown(e => {
-		if(e.which === 32) { // SPACE
-			pause = !pause;
-			canvas.setPaused(pause);
-		} else if(!pause && e.which === 37) { // LEFT
-			snake.headRedirect(-1, 0);
-		} else if(!pause && e.which === 38) { // UP
-			snake.headRedirect(0, -1);
-		} else if(!pause && e.which === 39) { // RIGHT
-			snake.headRedirect(+1, 0);
-		} else if(!pause && e.which === 40) { // DOWN
-			snake.headRedirect(0, +1);
-		}
+	this._canvas = new Canvas(document.getElementById('canvas'), window.innerWidth, window.innerHeight);
+	this._canvas.clean();
+	
+	this._canvasInfos = new CanvasInfos(this._canvas);
+
+	this._snake = new Snake(new MovingPoint(this._canvas, new Point(10, 10), 1, 0), 4, 3, snake => {
+		this._canvasInfos.get(snake.head()).snake++;
+		this._canvas.drawPixel(snake.head(), Colors.FRONT);
+		this._canvas.updateDrawings();
 	});
 	
-});
+	this._animation = new Animation(this._canvas, this._canvasInfos, this._snake);
+	this._animation.run();
+	
+	this._controls = new Controls(this._canvas, this._canvasInfos, this._snake, this._animation);
+	this._controls.install(this);
+	
+	this._mode = 1; // 1=before, 2=running, 3=pause, 4=after
+	
+	this.getMode = () => {
+		return this._mode;
+	};
+	
+	this.setMode = mode => {
+		this._mode = mode;
+		this._animation.setPaused(mode !== 2);
+		document.getElementById('canvas').style.opacity = mode === 2 ? '1' : '0.2';
+		document.getElementById('before-tag').style.display = mode === 1 ? 'flex' : 'none';
+		document.getElementById('pause-tag').style.display = mode === 3 ? 'flex' : 'none';
+		document.getElementById('after-tag').style.display = mode === 4 ? 'flex' : 'none';
+	};
+	
+};
+
+const launch = () => {
+	window.app = new App();
+};
 
 </script>
 
 </head>
-<body style="background-color: #999; ">
+<body onload="launch(); ">
 
-<canvas id="canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; "></canvas>
+<canvas id="canvas"></canvas>
+
+<div id="before-tag" class="tag"><span>Ready?</span></div>
+
+<div id="pause-tag" class="tag"><span>Pause</span></div>
+
+<div id="after-tag" class="tag"><span>Game Over</span></div>
 
 </body>
 </html>
