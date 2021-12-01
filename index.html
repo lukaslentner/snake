@@ -240,6 +240,8 @@ const Animation = function(canvas, canvasInfos, snake) {
 		const FPS_INTERVAL = 1000 / FPS;
 		let lastTime;
 		const animationFrame = nowTime => {
+
+			window.requestAnimationFrame(animationFrame);
 		
 			if(lastTime  === undefined) lastTime  = nowTime;
 			const timePast = nowTime - lastTime;
@@ -263,8 +265,6 @@ const Animation = function(canvas, canvasInfos, snake) {
 				lastTime = nowTime;
 			
 			}
-
-			window.requestAnimationFrame(animationFrame);
 			
 		}
 
